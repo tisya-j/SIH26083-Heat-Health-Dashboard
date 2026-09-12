@@ -1,0 +1,15 @@
+name,lat,lon,facility_type
+Akshardham Temple,28.6127,77.278,temple
+Jama Masjid,28.6565,77.2304,temple
+Bangla Sahib Gurudwara,28.6334,77.201,temple
+Hanuman Temple,28.6289,77.2343,temple
+Kali Temple,28.6289,77.2343,temple
+Delhi Public School,28.554,77.218,school
+Kendriya Vidyalaya,28.605,77.2,school
+Sarvodaya Vidyalaya,28.58,77.23,school
+Govt School East Delhi,28.65,77.3,school
+Govt School South Delhi,28.52,77.19,school
+North MCD Office,28.675,77.19,govt_building
+South MCD Office,28.515,77.195,govt_building
+East MCD Office,28.64,77.31,govt_building
+Delhi Secretariat,28.602,77.185,govt_building
