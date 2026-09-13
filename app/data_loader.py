@@ -23,8 +23,10 @@ def load_static_data():
 def load_boundaries():
     return gpd.read_file(BOUNDARY_PATH)
 
+
 def load_hospitals():
     return pd.read_csv(HOSPITAL_PATH)
 
-def load_cooling():
+
+def load_cooling_centres():
     return pd.read_csv(COOLING_PATH)

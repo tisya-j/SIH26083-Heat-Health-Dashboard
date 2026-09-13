@@ -1,0 +1,732 @@
+import math
+
+import streamlit as st
+import pandas as pd
+
+from risk_engine import find_peak_risk_period
+
+
+# ============================================================
+# RISK INFORMATION
+# ============================================================
+
+RISK_INFO = {
+    "Very Low": {
+        "icon": "🟢",
+        "title": "Very low heat risk",
+        "message": (
+            "Heat conditions in your area are expected to be relatively mild."
+        ),
+        "actions": [
+            "Stay hydrated, especially if spending time outdoors.",
+            "Use shade when available.",
+        ],
+    },
+
+    "Low": {
+        "icon": "🟢",
+        "title": "Low heat risk",
+        "message": (
+            "Some heat stress may occur, particularly during longer "
+            "periods outdoors."
+        ),
+        "actions": [
+            "Carry water when going outdoors.",
+            "Take breaks in shade or cooler places.",
+            "Stay hydrated throughout the day.",
+        ],
+    },
+
+    "Moderate": {
+        "icon": "🟠",
+        "title": "Moderate heat risk",
+        "message": (
+            "Heat conditions may become uncomfortable and stressful, "
+            "especially during the highest-risk part of the day."
+        ),
+        "actions": [
+            "Carry water if you are going outdoors.",
+            "Avoid unnecessary strenuous activity during the highest-risk period.",
+            "Take breaks in shade or cool spaces.",
+            "Check on older family members and young children.",
+        ],
+    },
+
+    "High": {
+        "icon": "🔴",
+        "title": "High heat risk",
+        "message": (
+            "Heat conditions are expected to be stressful in your area. "
+            "Extra care is recommended, especially during the highest-risk period."
+        ),
+        "actions": [
+            "Avoid unnecessary outdoor activity during the highest-risk period.",
+            "Carry water and drink regularly.",
+            "Use shade, air-conditioned spaces or other cool places when possible.",
+            "Check on older adults, children and anyone who may need extra help.",
+        ],
+    },
+
+    "Very High": {
+        "icon": "🛑",
+        "title": "Very high heat risk",
+        "message": (
+            "Your area is expected to experience particularly stressful "
+            "heat conditions. Avoid prolonged outdoor exposure where possible."
+        ),
+        "actions": [
+            "Avoid unnecessary outdoor activity.",
+            "Stay in a cool or shaded place as much as possible.",
+            "Drink water regularly.",
+            "Check on older adults, children and other vulnerable people.",
+            "Plan access to medical or cooling support before going out.",
+        ],
+    },
+}
+
+
+# ============================================================
+# HELPERS
+# ============================================================
+
+def format_date(date_value):
+    """Format a date in a citizen-friendly way."""
+    return pd.Timestamp(date_value).strftime("%A, %d %B %Y")
+
+
+def format_hour(timestamp):
+    """Format a timestamp as e.g. 1 PM."""
+    return pd.Timestamp(timestamp).strftime("%I %p").lstrip("0")
+
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    """Calculate distance between two latitude/longitude points."""
+
+    R = 6371.0
+
+    lat1 = math.radians(float(lat1))
+    lon1 = math.radians(float(lon1))
+    lat2 = math.radians(float(lat2))
+    lon2 = math.radians(float(lon2))
+
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(lat1)
+        * math.cos(lat2)
+        * math.sin(dlon / 2) ** 2
+    )
+
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+def get_ward_centroid(boundaries, ward_no):
+    """Get the centroid of a ward from its actual geometry."""
+
+    ward = boundaries[
+        boundaries["Ward_No"].astype(str) == str(ward_no)
+    ].copy()
+
+    if ward.empty:
+        return None, None
+
+    geometry = ward.iloc[0]["geometry"]
+
+    if geometry is None or geometry.is_empty:
+        return None, None
+
+    centroid = geometry.centroid
+
+    return centroid.y, centroid.x
+
+
+def find_nearest_facility(ward_lat, ward_lon, facilities):
+    """Find nearest facility using haversine distance."""
+
+    if ward_lat is None or ward_lon is None:
+        return None
+
+    if facilities is None or facilities.empty:
+        return None
+
+    results = facilities.copy()
+
+    results["distance_km"] = results.apply(
+        lambda row: haversine_km(
+            ward_lat,
+            ward_lon,
+            row["lat"],
+            row["lon"],
+        ),
+        axis=1,
+    )
+
+    nearest = results.sort_values("distance_km").iloc[0]
+
+    return {
+        "name": nearest["name"],
+        "lat": float(nearest["lat"]),
+        "lon": float(nearest["lon"]),
+        "distance_km": float(nearest["distance_km"]),
+        "facility_type": nearest.get("facility_type", None),
+    }
+
+
+def get_resource_counts(static_row):
+    """Read precomputed accessibility counts."""
+
+    def safe_int(column):
+        value = static_row.get(column, 0)
+
+        if pd.isna(value):
+            return 0
+
+        try:
+            return int(value)
+        except Exception:
+            return 0
+
+    return {
+        "hospitals_2km": safe_int("hospitals_within_2km"),
+        "beds_5km": safe_int("hospital_beds_within_5km"),
+        "cooling_1km": safe_int("cooling_centers_within_1km"),
+        "cooling_2km": safe_int("cooling_centers_within_2km"),
+    }
+
+
+# ============================================================
+# MAIN CITIZEN DASHBOARD
+# ============================================================
+
+def show_citizen_dashboard(
+    risk,
+    static,
+    boundaries,
+    hospitals,
+    cooling_centres,
+    hourly_risk=None,
+):
+    """
+    Citizen-facing heat-health dashboard.
+
+    Main purpose:
+        Tell a resident what the forecast means,
+        when to take extra care and what they can do.
+
+    Technical model outputs remain inside an expander.
+    """
+
+    # --------------------------------------------------------
+    # HEADER
+    # --------------------------------------------------------
+
+    st.markdown("## 👤 Check Your Area")
+
+    st.caption(
+        "See your ward's heat outlook and plan around the highest-risk period."
+    )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # WARD SELECTION
+    # --------------------------------------------------------
+
+    ward_lookup = (
+        static[["Ward_No", "WardName"]]
+        .drop_duplicates()
+        .sort_values("Ward_No")
+        .copy()
+    )
+
+    ward_lookup["label"] = ward_lookup.apply(
+        lambda row: (
+            f"Ward {int(row['Ward_No'])} — {row['WardName']}"
+        ),
+        axis=1,
+    )
+
+    ward_options = ward_lookup["label"].tolist()
+
+    if not ward_options:
+        st.error("No ward information is available.")
+        return
+
+    selected_label = st.selectbox(
+        "Select your ward",
+        ward_options,
+    )
+
+    selected_ward = int(
+        ward_lookup.loc[
+            ward_lookup["label"] == selected_label,
+            "Ward_No",
+        ].iloc[0]
+    )
+
+    selected_ward_name = ward_lookup.loc[
+        ward_lookup["Ward_No"] == selected_ward,
+        "WardName",
+    ].iloc[0]
+
+    # --------------------------------------------------------
+    # DATE SELECTION
+    # --------------------------------------------------------
+
+    ward_dates = (
+        risk[
+            risk["Ward_No"] == selected_ward
+        ]["target_date"]
+        .dropna()
+        .drop_duplicates()
+        .sort_values()
+        .tolist()
+    )
+
+    if not ward_dates:
+        st.warning("No forecast is available for this ward.")
+        return
+
+    ward_dates = [
+        pd.Timestamp(d).date()
+        for d in ward_dates
+    ]
+
+    selected_date = st.selectbox(
+        "Forecast date",
+        ward_dates,
+        format_func=lambda d: pd.Timestamp(d).strftime(
+            "%A, %d %B %Y"
+        ),
+    )
+
+    # --------------------------------------------------------
+    # GET DAILY WARD RESULT
+    # --------------------------------------------------------
+
+    ward_rows = risk[
+        (risk["Ward_No"] == selected_ward)
+        & (
+            pd.to_datetime(risk["target_date"]).dt.date
+            == selected_date
+        )
+    ].copy()
+
+    if ward_rows.empty:
+        st.warning(
+            "No forecast is available for this ward and date."
+        )
+        return
+
+    ward_rows = ward_rows.sort_values("lead_time_days")
+
+    ward = ward_rows.iloc[0]
+
+    # --------------------------------------------------------
+    # RISK CATEGORY
+    # --------------------------------------------------------
+
+    risk_category = str(
+        ward.get("Risk_Category", "Moderate")
+    )
+
+    info = RISK_INFO.get(
+        risk_category,
+        RISK_INFO["Moderate"],
+    )
+
+    forecast_date_text = format_date(selected_date)
+
+    # --------------------------------------------------------
+    # FIND HOURLY PEAK PERIOD
+    # --------------------------------------------------------
+
+    peak = None
+
+    if hourly_risk is not None and not hourly_risk.empty:
+
+        peak = find_peak_risk_period(
+            hourly_risk,
+            selected_ward,
+            selected_date,
+        )
+
+    # --------------------------------------------------------
+    # MAIN OUTLOOK
+    # --------------------------------------------------------
+
+    st.markdown(
+        f"### Your heat outlook for {forecast_date_text}"
+    )
+
+    if risk_category in ["High", "Very High"]:
+
+        st.error(
+            f"### {info['icon']} {info['title']}\n\n"
+            f"{info['message']}"
+        )
+
+    elif risk_category == "Moderate":
+
+        st.warning(
+            f"### {info['icon']} {info['title']}\n\n"
+            f"{info['message']}"
+        )
+
+    else:
+
+        st.success(
+            f"### {info['icon']} {info['title']}\n\n"
+            f"{info['message']}"
+        )
+
+    # --------------------------------------------------------
+    # WHEN TO TAKE EXTRA CARE
+    # --------------------------------------------------------
+
+    st.markdown("### ☀️ When to take extra care")
+
+    if peak:
+
+        st.info(
+            f"**Highest-risk period: {peak['period_label']}**\n\n"
+            "This is the period when predicted heat risk is highest "
+            "in your area. If possible, avoid unnecessary outdoor "
+            "activity during this time."
+        )
+
+    else:
+
+        st.info(
+            "The highest-risk hourly period is not currently available. "
+            "As a general precaution, take extra care during the hottest "
+            "part of the afternoon."
+        )
+
+    # --------------------------------------------------------
+    # SIMPLE DAY PLAN
+    # --------------------------------------------------------
+
+    st.markdown("### 🗓️ Plan your day")
+
+    if peak:
+
+        start_hour = pd.Timestamp(
+            peak["peak_time"]
+        ) - pd.Timedelta(hours=2)
+
+        end_hour = pd.Timestamp(
+            peak["peak_time"]
+        ) + pd.Timedelta(hours=1)
+
+        st.markdown(
+            f"""
+**🌅 Before {format_hour(start_hour)}**
+
+If you need to do outdoor tasks, consider doing them earlier "
+"rather than during the highest-risk period.
+
+**☀️ {format_hour(start_hour)} – {format_hour(end_hour)}**
+
+**Take extra care.** Avoid unnecessary outdoor activity and "
+"look for shade or a cool place when possible.
+
+**🌆 After {format_hour(end_hour)}**
+
+Continue to stay hydrated and take breaks if you remain outdoors.
+"""
+        )
+
+    else:
+
+        st.markdown(
+            """
+**🌅 Morning**
+
+If possible, plan outdoor tasks earlier in the day.
+
+**☀️ Afternoon**
+
+Take extra care during the hottest part of the day.
+
+**🌆 Evening**
+
+Continue to stay hydrated, particularly if you have been outdoors.
+"""
+        )
+
+    # --------------------------------------------------------
+    # WHAT TO DO
+    # --------------------------------------------------------
+
+    st.markdown("### 💧 What you can do")
+
+    for action in info["actions"]:
+        st.markdown(f"- {action}")
+
+    # --------------------------------------------------------
+    # PREPARE AHEAD
+    # --------------------------------------------------------
+
+    if risk_category in ["High", "Very High"]:
+
+        st.markdown("### ⚠️ Prepare ahead")
+
+        st.warning(
+            "If you need to go out, plan before you leave. "
+            "Carry water, identify a cool place where you can "
+            "take a break, and avoid prolonged outdoor exposure "
+            "during the highest-risk period."
+        )
+
+    elif risk_category == "Moderate":
+
+        st.markdown("### 🧴 A little preparation helps")
+
+        st.info(
+            "If you expect to spend time outdoors, carry water "
+            "and plan access to shade or a cool place."
+        )
+
+    # --------------------------------------------------------
+    # STATIC WARD INFORMATION
+    # --------------------------------------------------------
+
+    static_rows = static[
+        static["Ward_No"] == selected_ward
+    ].copy()
+
+    static_row = (
+        static_rows.iloc[0]
+        if not static_rows.empty
+        else pd.Series(dtype="object")
+    )
+
+    counts = get_resource_counts(static_row)
+
+    # --------------------------------------------------------
+    # FIND WARD CENTROID
+    # --------------------------------------------------------
+
+    ward_lat, ward_lon = get_ward_centroid(
+        boundaries,
+        selected_ward,
+    )
+
+    nearest_hospital = find_nearest_facility(
+        ward_lat,
+        ward_lon,
+        hospitals,
+    )
+
+    nearest_cooling = find_nearest_facility(
+        ward_lat,
+        ward_lon,
+        cooling_centres,
+    )
+
+    # --------------------------------------------------------
+    # LOCAL HELP
+    # --------------------------------------------------------
+
+    st.divider()
+
+    st.markdown("## 🆘 Help near your area")
+
+    # ---------------- HOSPITAL ----------------
+
+    st.markdown("### 🏥 Nearest hospital")
+
+    if nearest_hospital:
+
+        col1, col2 = st.columns([2, 1])
+
+        with col1:
+            st.markdown(
+                f"**{nearest_hospital['name']}**"
+            )
+
+        with col2:
+            st.metric(
+                "Approx. distance",
+                f"{nearest_hospital['distance_km']:.1f} km",
+            )
+
+        maps_url = (
+            "https://www.google.com/maps/dir/?api=1"
+            f"&destination={nearest_hospital['lat']},"
+            f"{nearest_hospital['lon']}"
+        )
+
+        st.link_button(
+            "📍 Get directions",
+            maps_url,
+            use_container_width=True,
+        )
+
+    else:
+
+        st.info(
+            "Hospital location information is not available "
+            "for this ward."
+        )
+
+    st.caption(
+        f"Hospitals within 2 km: "
+        f"**{counts['hospitals_2km']}**"
+    )
+
+    st.caption(
+        f"Hospital beds within 5 km: "
+        f"**{counts['beds_5km']}**"
+    )
+
+    # ---------------- COOLING SUPPORT ----------------
+
+    st.markdown("### 🏠 Cooling-support locations")
+
+    if nearest_cooling:
+
+        col1, col2 = st.columns([2, 1])
+
+        with col1:
+
+            st.markdown(
+                f"**{nearest_cooling['name']}**"
+            )
+
+            facility_type = nearest_cooling.get(
+                "facility_type",
+                None,
+            )
+
+            if pd.notna(facility_type):
+
+                readable_type = str(
+                    facility_type
+                ).replace("_", " ").title()
+
+                st.caption(
+                    f"Listed as a {readable_type.lower()}."
+                )
+
+        with col2:
+
+            st.metric(
+                "Approx. distance",
+                f"{nearest_cooling['distance_km']:.1f} km",
+            )
+
+        maps_url = (
+            "https://www.google.com/maps/dir/?api=1"
+            f"&destination={nearest_cooling['lat']},"
+            f"{nearest_cooling['lon']}"
+        )
+
+        st.link_button(
+            "📍 Get directions",
+            maps_url,
+            use_container_width=True,
+        )
+
+        st.caption(
+            "These are listed cooling-support locations in the "
+            "prototype dataset and should not be assumed to be "
+            "officially designated cooling centres."
+        )
+
+    else:
+
+        st.info(
+            "Cooling-support location information is not "
+            "available for this ward."
+        )
+
+    st.caption(
+        f"Cooling support within 1 km: "
+        f"**{counts['cooling_1km']}**"
+    )
+
+    st.caption(
+        f"Cooling support within 2 km: "
+        f"**{counts['cooling_2km']}**"
+    )
+
+    # --------------------------------------------------------
+    # TECHNICAL DETAILS
+    # --------------------------------------------------------
+
+    st.divider()
+
+    with st.expander("ℹ️ How is this forecast calculated?"):
+
+        st.write(
+            "The platform combines forecast thermal conditions "
+            "with local heat exposure, population vulnerability "
+            "and access to response resources to estimate "
+            "ward-level human heat risk."
+        )
+
+        st.markdown("**Forecast thermal stress**")
+
+        if peak:
+
+            st.write(
+                f"Highest predicted WBGT during the selected "
+                f"3-hour period: **{peak['peak_wbgt']:.1f} °C**"
+            )
+
+        else:
+
+            wbgt = ward.get(
+                "forecast_wbgt_max_C",
+                None,
+            )
+
+            if pd.notna(wbgt):
+
+                st.write(
+                    f"Forecast WBGT maximum: "
+                    f"**{float(wbgt):.1f} °C**"
+                )
+
+        st.markdown("**Risk components**")
+
+        if "Future_Heat_Hazard" in ward:
+
+            st.write(
+                f"Future heat hazard: "
+                f"**{float(ward['Future_Heat_Hazard']):.3f}**"
+            )
+
+        if "Vulnerability_Score" in ward:
+
+            st.write(
+                f"Population vulnerability: "
+                f"**{float(ward['Vulnerability_Score']):.3f}**"
+            )
+
+        if "Response_Gap_Score" in ward:
+
+            st.write(
+                f"Response gap: "
+                f"**{float(ward['Response_Gap_Score']):.3f}**"
+            )
+
+        st.markdown(
+            "**Important:** Human Heat Risk is a ward-level "
+            "prioritisation index. It is **not** a probability "
+            "that an individual will become ill."
+        )
+
+    # --------------------------------------------------------
+    # DISCLAIMER
+    # --------------------------------------------------------
+
+    st.caption(
+        "This tool provides area-level heat-risk information "
+        "and general preventive guidance. It does not provide "
+        "personal medical advice or diagnose heat-related illness."
+    )
