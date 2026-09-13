@@ -1,4 +1,3 @@
-
 import re
 
 import streamlit as st
@@ -399,47 +398,49 @@ map_risk = risk[
 
 
 # ============================================================
-# ADD RESOURCE INFORMATION
+# ADD RESOURCE + POPULATION INFORMATION
 # ============================================================
 
 resource_columns = [
-
     "nearest_hospital_dist_km",
-
     "nearest_cooling_center_dist_km",
-
     "hospitals_within_2km",
-
     "hospitals_within_5km",
-
     "hospital_beds_within_5km",
-
     "cooling_centers_within_1km",
-
     "cooling_centers_within_2km",
-
     "cooling_centers_temples_1km",
-
     "cooling_centers_schools_1km",
-
     "cooling_centers_govt_bldg_1km",
+]
 
+
+# Population is contextual information.
+# It is NOT treated as a probability of illness.
+
+population_columns = [
+    "TotalPop",
+]
+
+
+available_population_columns = [
+    column
+    for column in population_columns
+    if column in static.columns
 ]
 
 
 available_resource_columns = [
-
     column
-
     for column in resource_columns
-
     if column in static.columns
-
 ]
 
 
 resource_data = static[
-    ["Ward_No"] + available_resource_columns
+    ["Ward_No"]
+    + available_resource_columns
+    + available_population_columns
 ].copy()
 
 
@@ -500,7 +501,7 @@ map_columns = [
 
     "Risk_Category",
 
-] + available_resource_columns
+] + available_resource_columns + available_population_columns
 
 
 map_risk_clean = map_risk[
@@ -901,6 +902,27 @@ if selected_ward is not None:
 
 
         # ====================================================
+        # WARD POPULATION
+        # ====================================================
+
+        total_population = ward.get(
+            "TotalPop",
+            None,
+        )
+
+
+        if pd.notna(total_population):
+
+            total_population = int(
+                round(float(total_population))
+            )
+
+        else:
+
+            total_population = None
+
+
+        # ====================================================
         # WARD INTELLIGENCE
         # ====================================================
 
@@ -957,13 +979,78 @@ if selected_ward is not None:
                 f"{response_gap:.3f}",
             )
 
-                # ====================================================
+
+        # ====================================================
+        # POPULATION CONTEXT
+        # ====================================================
+
+        st.markdown(
+            "### 👥 Population context"
+        )
+
+
+        if (
+            total_population is not None
+            and total_population > 0
+        ):
+
+            st.metric(
+                "Ward population",
+                f"{total_population:,}",
+            )
+
+
+            if risk_category in [
+                "High",
+                "Very High",
+            ]:
+
+                st.warning(
+                    f"""
+                    **{total_population:,} residents live in
+                    this {risk_category}-risk ward.**
+
+                    This population figure represents residents
+                    living in a ward currently classified for
+                    priority heat-health attention.
+
+                    It does **not** mean that all residents will
+                    experience heat-related illness.
+                    """
+                )
+
+            else:
+
+                st.info(
+                    f"""
+                    This ward has an estimated population of
+                    **{total_population:,} residents**.
+                    """
+                )
+
+
+        elif total_population == 0:
+
+            st.info(
+                "Ward population data is recorded as 0 for this ward."
+            )
+
+
+        else:
+
+            st.info(
+                "Ward population data is currently unavailable."
+            )
+
+
+        # ====================================================
         # HOURLY RISK TREND
         # ====================================================
 
         st.markdown(
             "### 📈 Hourly heat-risk outlook"
         )
+
 
         hourly_ward = hourly_risk[
             (hourly_risk["Ward_No"] == selected_ward)
@@ -973,6 +1060,7 @@ if selected_ward is not None:
             )
         ].copy()
 
+
         if not hourly_ward.empty:
 
             hourly_ward = (
@@ -981,6 +1069,7 @@ if selected_ward is not None:
                 .copy()
             )
 
+
             hourly_chart = hourly_ward[
                 [
                     "time",
@@ -988,9 +1077,11 @@ if selected_ward is not None:
                 ]
             ].copy()
 
+
             hourly_chart = hourly_chart.set_index(
                 "time"
             )
+
 
             hourly_chart = hourly_chart.rename(
                 columns={
@@ -999,11 +1090,13 @@ if selected_ward is not None:
                 }
             )
 
+
             st.line_chart(
                 hourly_chart,
                 y="Human Heat Risk",
                 height=300,
             )
+
 
             st.caption(
                 "Hourly Human Heat Risk for the selected "
@@ -1011,6 +1104,7 @@ if selected_ward is not None:
                 "the combined heat hazard, population "
                 "vulnerability and response-access gap."
             )
+
 
         else:
 
@@ -1020,9 +1114,6 @@ if selected_ward is not None:
             )
 
 
-        # ====================================================
-        # HOURLY PEAK RISK
-        # ====================================================
         # ====================================================
         # HOURLY PEAK RISK
         # ====================================================
@@ -1225,6 +1316,7 @@ if selected_ward is not None:
                 None,
             )
 
+
             st.markdown(
                 "**Nearest hospital**"
             )
@@ -1252,6 +1344,7 @@ if selected_ward is not None:
                 "nearest_cooling_center_dist_km",
                 None,
             )
+
 
             st.markdown(
                 "**Nearest cooling centre**"
@@ -1547,17 +1640,61 @@ very_high_count = high_risk[
 ]["Ward_No"].nunique()
 
 
+# ============================================================
+# POPULATION IN HIGH-RISK WARDS
+# ============================================================
+
+if "TotalPop" in high_risk.columns:
+
+    high_risk_population = (
+        pd.to_numeric(
+            high_risk["TotalPop"],
+            errors="coerce",
+        )
+        .fillna(0)
+        .sum()
+    )
+
+    high_risk_population = int(
+        round(high_risk_population)
+    )
+
+else:
+
+    high_risk_population = None
+
+
 if high_risk_count > 0:
 
-    st.warning(
-        f"""
-        **{high_risk_count} MCD wards require targeted
-        heat-risk attention for
-        {selected_date.strftime('%d %B')}.**
+    if high_risk_population is not None:
 
-        This includes **{very_high_count} Very High-risk wards**.
-        """
-    )
+        st.warning(
+            f"""
+            **{high_risk_count} MCD wards require targeted
+            heat-risk attention for
+            {selected_date.strftime('%d %B')}.**
+
+            This includes **{very_high_count} Very High-risk wards**
+            covering approximately
+            **{high_risk_population:,} residents**.
+
+            The population figure represents residents living
+            in wards classified as High or Very High risk; it
+            is not an estimate of illness or mortality.
+            """
+        )
+
+    else:
+
+        st.warning(
+            f"""
+            **{high_risk_count} MCD wards require targeted
+            heat-risk attention for
+            {selected_date.strftime('%d %B')}.**
+
+            This includes **{very_high_count} Very High-risk wards**.
+            """
+        )
 
 else:
 
@@ -1779,28 +1916,41 @@ if not high_risk.empty:
     )
 
 
+    high_risk_display_columns = [
+
+        "Ward_No",
+
+        "WardName",
+
+        "Risk_Category",
+
+    ]
+
+
+    if "TotalPop" in high_risk.columns:
+
+        high_risk_display_columns.append(
+            "TotalPop"
+        )
+
+
+    high_risk_display_columns += [
+
+        "forecast_wbgt_max_C",
+
+        "WBGT_Hazard_Score",
+
+        "Vulnerability_Score",
+
+        "Response_Gap_Score",
+
+        "Human_Heat_Risk",
+
+    ]
+
+
     high_risk_display = high_risk[
-
-        [
-
-            "Ward_No",
-
-            "WardName",
-
-            "Risk_Category",
-
-            "forecast_wbgt_max_C",
-
-            "WBGT_Hazard_Score",
-
-            "Vulnerability_Score",
-
-            "Response_Gap_Score",
-
-            "Human_Heat_Risk",
-
-        ]
-
+        high_risk_display_columns
     ].sort_values(
 
         "Human_Heat_Risk",
@@ -1808,6 +1958,18 @@ if not high_risk.empty:
         ascending=False,
 
     )
+
+
+    if "TotalPop" in high_risk_display.columns:
+
+        high_risk_display["TotalPop"] = (
+            pd.to_numeric(
+                high_risk_display["TotalPop"],
+                errors="coerce",
+            )
+            .round()
+            .astype("Int64")
+        )
 
 
     st.dataframe(
