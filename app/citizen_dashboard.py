@@ -1,7 +1,7 @@
 import math
 
-import streamlit as st
 import pandas as pd
+import streamlit as st
 
 from risk_engine import find_peak_risk_period
 
@@ -12,7 +12,6 @@ from risk_engine import find_peak_risk_period
 
 RISK_INFO = {
     "Very Low": {
-        "icon": "🟢",
         "title": "Very low heat risk",
         "message": (
             "Heat conditions in your area are expected to be relatively mild."
@@ -24,7 +23,6 @@ RISK_INFO = {
     },
 
     "Low": {
-        "icon": "🟢",
         "title": "Low heat risk",
         "message": (
             "Some heat stress may occur, particularly during longer "
@@ -38,7 +36,6 @@ RISK_INFO = {
     },
 
     "Moderate": {
-        "icon": "🟠",
         "title": "Moderate heat risk",
         "message": (
             "Heat conditions may become uncomfortable and stressful, "
@@ -53,7 +50,6 @@ RISK_INFO = {
     },
 
     "High": {
-        "icon": "🔴",
         "title": "High heat risk",
         "message": (
             "Heat conditions are expected to be stressful in your area. "
@@ -68,7 +64,6 @@ RISK_INFO = {
     },
 
     "Very High": {
-        "icon": "🛑",
         "title": "Very high heat risk",
         "message": (
             "Your area is expected to experience particularly stressful "
@@ -212,20 +207,23 @@ def show_citizen_dashboard(
     Citizen-facing heat-health dashboard.
 
     Main purpose:
-        Tell a resident what the forecast means,
-        when to take extra care and what they can do.
+        Show a resident their area's forecast risk,
+        identify the highest-risk period,
+        provide practical preventive guidance,
+        and show nearby support resources.
 
-    Technical model outputs remain inside an expander.
+    Technical model information remains inside an expander.
     """
 
     # --------------------------------------------------------
     # HEADER
     # --------------------------------------------------------
 
-    st.markdown("## 👤 Check Your Area")
+    st.markdown("## Check Your Area")
 
     st.caption(
-        "See your ward's heat outlook and plan around the highest-risk period."
+        "View your ward's heat outlook, identify the highest-risk period, "
+        "and plan accordingly."
     )
 
     st.divider()
@@ -358,43 +356,42 @@ def show_citizen_dashboard(
     # --------------------------------------------------------
 
     st.markdown(
-        f"### Your heat outlook for {forecast_date_text}"
+        f"### Heat outlook — {forecast_date_text}"
     )
 
     if risk_category in ["High", "Very High"]:
 
         st.error(
-            f"### {info['icon']} {info['title']}\n\n"
+            f"**{info['title']}**\n\n"
             f"{info['message']}"
         )
 
     elif risk_category == "Moderate":
 
         st.warning(
-            f"### {info['icon']} {info['title']}\n\n"
+            f"**{info['title']}**\n\n"
             f"{info['message']}"
         )
 
     else:
 
         st.success(
-            f"### {info['icon']} {info['title']}\n\n"
+            f"**{info['title']}**\n\n"
             f"{info['message']}"
         )
 
     # --------------------------------------------------------
-    # WHEN TO TAKE EXTRA CARE
+    # HIGHEST-RISK PERIOD
     # --------------------------------------------------------
 
-    st.markdown("### ☀️ When to take extra care")
+    st.markdown("### Highest-risk period")
 
     if peak:
 
         st.info(
-            f"**Highest-risk period: {peak['period_label']}**\n\n"
-            "This is the period when predicted heat risk is highest "
-            "in your area. If possible, avoid unnecessary outdoor "
-            "activity during this time."
+            f"**{peak['period_label']}**\n\n"
+            "Predicted heat risk is highest during this period. "
+            "If possible, avoid unnecessary outdoor activity at this time."
         )
 
     else:
@@ -406,84 +403,97 @@ def show_citizen_dashboard(
         )
 
     # --------------------------------------------------------
-    # SIMPLE DAY PLAN
+    # DAILY PLANNING
     # --------------------------------------------------------
 
-    st.markdown("### 🗓️ Plan your day")
+    st.markdown("### Daily planning")
 
     if peak:
 
-        start_hour = pd.Timestamp(
-            peak["peak_time"]
-        ) - pd.Timedelta(hours=2)
-
-        end_hour = pd.Timestamp(
-            peak["peak_time"]
-        ) + pd.Timedelta(hours=1)
-
-        st.markdown(
-            f"""
-**🌅 Before {format_hour(start_hour)}**
-
-If you need to do outdoor tasks, consider doing them earlier "
-"rather than during the highest-risk period.
-
-**☀️ {format_hour(start_hour)} – {format_hour(end_hour)}**
-
-**Take extra care.** Avoid unnecessary outdoor activity and "
-"look for shade or a cool place when possible.
-
-**🌆 After {format_hour(end_hour)}**
-
-Continue to stay hydrated and take breaks if you remain outdoors.
-"""
+        start_hour = (
+            pd.Timestamp(peak["peak_time"])
+            - pd.Timedelta(hours=2)
         )
+
+        end_hour = (
+            pd.Timestamp(peak["peak_time"])
+            + pd.Timedelta(hours=1)
+        )
+
+        plan_col1, plan_col2, plan_col3 = st.columns(3)
+
+        with plan_col1:
+            st.markdown("**Before the highest-risk period**")
+            st.write(
+                f"If you need to complete outdoor tasks, "
+                f"consider doing them before {format_hour(start_hour)}."
+            )
+
+        with plan_col2:
+            st.markdown("**During the highest-risk period**")
+            st.write(
+                f"Take extra care between "
+                f"{format_hour(start_hour)} and {format_hour(end_hour)}. "
+                "Avoid unnecessary outdoor activity where possible."
+            )
+
+        with plan_col3:
+            st.markdown("**After the highest-risk period**")
+            st.write(
+                "Continue to stay hydrated and take breaks "
+                "if you remain outdoors."
+            )
 
     else:
 
-        st.markdown(
-            """
-**🌅 Morning**
+        plan_col1, plan_col2, plan_col3 = st.columns(3)
 
-If possible, plan outdoor tasks earlier in the day.
+        with plan_col1:
+            st.markdown("**Morning**")
+            st.write(
+                "If possible, plan outdoor tasks earlier in the day."
+            )
 
-**☀️ Afternoon**
+        with plan_col2:
+            st.markdown("**Afternoon**")
+            st.write(
+                "Take extra care during the hottest part of the day."
+            )
 
-Take extra care during the hottest part of the day.
-
-**🌆 Evening**
-
-Continue to stay hydrated, particularly if you have been outdoors.
-"""
-        )
+        with plan_col3:
+            st.markdown("**Evening**")
+            st.write(
+                "Continue to stay hydrated, particularly "
+                "if you have been outdoors."
+            )
 
     # --------------------------------------------------------
-    # WHAT TO DO
+    # RECOMMENDED PRECAUTIONS
     # --------------------------------------------------------
 
-    st.markdown("### 💧 What you can do")
+    st.markdown("### Recommended precautions")
 
     for action in info["actions"]:
         st.markdown(f"- {action}")
 
     # --------------------------------------------------------
-    # PREPARE AHEAD
+    # PREPARATION
     # --------------------------------------------------------
 
     if risk_category in ["High", "Very High"]:
 
-        st.markdown("### ⚠️ Prepare ahead")
+        st.markdown("### Prepare in advance")
 
         st.warning(
-            "If you need to go out, plan before you leave. "
-            "Carry water, identify a cool place where you can "
-            "take a break, and avoid prolonged outdoor exposure "
-            "during the highest-risk period."
+            "If you need to go out, plan before leaving. "
+            "Carry water, identify a cool place where you can take "
+            "a break, and avoid prolonged outdoor exposure during "
+            "the highest-risk period."
         )
 
     elif risk_category == "Moderate":
 
-        st.markdown("### 🧴 A little preparation helps")
+        st.markdown("### Preparation")
 
         st.info(
             "If you expect to spend time outdoors, carry water "
@@ -528,16 +538,16 @@ Continue to stay hydrated, particularly if you have been outdoors.
     )
 
     # --------------------------------------------------------
-    # LOCAL HELP
+    # LOCAL SUPPORT
     # --------------------------------------------------------
 
     st.divider()
 
-    st.markdown("## 🆘 Help near your area")
+    st.markdown("## Local support")
 
     # ---------------- HOSPITAL ----------------
 
-    st.markdown("### 🏥 Nearest hospital")
+    st.markdown("### Nearest hospital")
 
     if nearest_hospital:
 
@@ -561,7 +571,7 @@ Continue to stay hydrated, particularly if you have been outdoors.
         )
 
         st.link_button(
-            "📍 Get directions",
+            "Get directions",
             maps_url,
             use_container_width=True,
         )
@@ -574,18 +584,16 @@ Continue to stay hydrated, particularly if you have been outdoors.
         )
 
     st.caption(
-        f"Hospitals within 2 km: "
-        f"**{counts['hospitals_2km']}**"
+        f"Hospitals within 2 km: **{counts['hospitals_2km']}**"
     )
 
     st.caption(
-        f"Hospital beds within 5 km: "
-        f"**{counts['beds_5km']}**"
+        f"Hospital beds within 5 km: **{counts['beds_5km']}**"
     )
 
     # ---------------- COOLING SUPPORT ----------------
 
-    st.markdown("### 🏠 Cooling-support locations")
+    st.markdown("### Cooling support")
 
     if nearest_cooling:
 
@@ -626,7 +634,7 @@ Continue to stay hydrated, particularly if you have been outdoors.
         )
 
         st.link_button(
-            "📍 Get directions",
+            "Get directions",
             maps_url,
             use_container_width=True,
         )
@@ -645,13 +653,11 @@ Continue to stay hydrated, particularly if you have been outdoors.
         )
 
     st.caption(
-        f"Cooling support within 1 km: "
-        f"**{counts['cooling_1km']}**"
+        f"Cooling support within 1 km: **{counts['cooling_1km']}**"
     )
 
     st.caption(
-        f"Cooling support within 2 km: "
-        f"**{counts['cooling_2km']}**"
+        f"Cooling support within 2 km: **{counts['cooling_2km']}**"
     )
 
     # --------------------------------------------------------
@@ -660,7 +666,7 @@ Continue to stay hydrated, particularly if you have been outdoors.
 
     st.divider()
 
-    with st.expander("ℹ️ How is this forecast calculated?"):
+    with st.expander("How the forecast is calculated"):
 
         st.write(
             "The platform combines forecast thermal conditions "

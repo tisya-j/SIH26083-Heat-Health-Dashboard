@@ -1,8 +1,13 @@
+
 import re
 
 import streamlit as st
 import pandas as pd
 import folium
+from styles import apply_theme
+
+apply_theme()  # That's it!
+
 
 from streamlit_folium import st_folium
 
@@ -22,24 +27,37 @@ from data_loader import (
 from citizen_dashboard import show_citizen_dashboard
 
 
+
 # ============================================================
-# PAGE CONFIG
+# PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
-    page_title="Delhi Heat-Health Platform",
-    page_icon="🌡️",
+    page_title="Delhi Heat-Health Risk Dashboard",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 
 # ============================================================
-# TITLE
+# APPLICATION STYLING
 # ============================================================
 
-st.title("Delhi Heat-Health Platform")
+
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
+st.title("Delhi Heat-Health Risk Dashboard")
 
 st.caption(
+    "Ward-level heat-risk forecasting and targeted response planning"
+)
+
+st.caption(
+    "Forecast-based decision support · 250 MCD wards · "
     "Predict → Warn → Protect → Rescue"
 )
 
@@ -58,7 +76,7 @@ mode_col1, mode_col2 = st.columns(2)
 with mode_col1:
 
     if st.button(
-        "🏛️ Authority Dashboard",
+        "Authority Dashboard",
         use_container_width=True,
     ):
 
@@ -70,7 +88,7 @@ with mode_col1:
 with mode_col2:
 
     if st.button(
-        "👤 Check My Area",
+        "Citizen Dashboard",
         use_container_width=True,
     ):
 
@@ -217,11 +235,11 @@ forecast_dates = sorted(
 # SIDEBAR
 # ============================================================
 
-st.sidebar.header("Forecast")
+st.sidebar.header("Forecast controls")
 
 st.sidebar.caption(
-    "Select a target date. The forecast horizon is "
-    "determined automatically."
+    "Select a target date to update the ward-level "
+    "heat-risk map and operational analysis."
 )
 
 
@@ -343,28 +361,29 @@ for i, forecast_date in enumerate(forecast_dates):
 
             st.rerun()
 
+
         if very_high_count > 0:
 
             st.error(
-                f"VERY HIGH · {high_count} wards"
+                f"Very High risk · {very_high_count} wards"
             )
 
         elif high_count >= 75:
 
             st.error(
-                f"HIGH · {high_count} wards"
+                f"High risk · {high_count} wards"
             )
 
         elif high_count >= 30:
 
             st.warning(
-                f"ELEVATED · {high_count} wards"
+                f"Elevated risk · {high_count} wards"
             )
 
         else:
 
             st.success(
-                f"LOWER · {high_count} wards"
+                f"Lower risk · {high_count} wards"
             )
 
 
@@ -383,8 +402,7 @@ st.subheader(
 if lead_time is not None:
 
     st.caption(
-        f"{lead_time}-day forecast · "
-        f"250 MCD wards"
+        f"{lead_time}-day forecast · 250 MCD wards"
     )
 
 
@@ -398,7 +416,7 @@ map_risk = risk[
 
 
 # ============================================================
-# ADD RESOURCE + POPULATION INFORMATION
+# RESOURCE + POPULATION INFORMATION
 # ============================================================
 
 resource_columns = [
@@ -414,9 +432,6 @@ resource_columns = [
     "cooling_centers_govt_bldg_1km",
 ]
 
-
-# Population is contextual information.
-# It is NOT treated as a probability of illness.
 
 population_columns = [
     "TotalPop",
@@ -521,15 +536,28 @@ map_data = boundaries.merge(
 # RISK COLOURS
 # ============================================================
 
+RISK_COLOURS = {
+
+    "very high": "#7f0000",
+
+    "high": "#d7301f",
+
+    "moderate": "#fc8d59",
+
+    "low": "#91cf60",
+
+    "very low": "#1a9850",
+
+}
+
+
 def risk_color(category):
 
     if category is None:
-
         return "#BDBDBD"
 
 
     if pd.isna(category):
-
         return "#BDBDBD"
 
 
@@ -540,32 +568,10 @@ def risk_color(category):
     )
 
 
-    if category == "very high":
-
-        return "#7f0000"
-
-
-    if category == "high":
-
-        return "#d7301f"
-
-
-    if category == "moderate":
-
-        return "#fc8d59"
-
-
-    if category == "low":
-
-        return "#91cf60"
-
-
-    if category == "very low":
-
-        return "#1a9850"
-
-
-    return "#BDBDBD"
+    return RISK_COLOURS.get(
+        category,
+        "#BDBDBD",
+    )
 
 
 # ============================================================
@@ -581,7 +587,7 @@ m = folium.Map(
 
     zoom_start=10,
 
-    tiles="CartoDB positron",
+    tiles="OpenStreetMap",
 
 )
 
@@ -608,13 +614,13 @@ def style_function(feature):
             risk_color(category),
 
         "color":
-            "#555555",
+            "#666666",
 
         "weight":
-            1,
+            0.7,
 
         "fillOpacity":
-            0.68,
+            0.72,
 
     }
 
@@ -733,40 +739,39 @@ folium.LayerControl().add_to(m)
 # RISK LEGEND
 # ============================================================
 
-st.markdown("#### Risk level")
+# ============================================================
+# RISK LEGEND
+# ============================================================
+
+st.markdown("**Risk level**")
 
 legend_cols = st.columns(5)
 
+risk_levels = [
+    ("Very Low", "#1a9850"),
+    ("Low", "#91cf60"),
+    ("Moderate", "#fc8d59"),
+    ("High", "#d7301f"),
+    ("Very High", "#7f0000"),
+]
 
-with legend_cols[0]:
-
-    st.markdown("🟩 **Very Low**")
-
-
-with legend_cols[1]:
-
-    st.markdown("🟩 **Low**")
-
-
-with legend_cols[2]:
-
-    st.markdown("🟧 **Moderate**")
-
-
-with legend_cols[3]:
-
-    st.markdown("🟥 **High**")
-
-
-with legend_cols[4]:
-
-    st.markdown("🟥 **Very High**")
-
-
-st.caption(
-    "Map colours correspond to the Human Heat Risk "
-    "prioritisation categories."
-)
+for col, (label, color) in zip(legend_cols, risk_levels):
+    with col:
+        st.markdown(
+            f"""
+            <div style="display:flex; align-items:center; gap:8px;">
+                <div style="
+                    width:16px;
+                    height:16px;
+                    background-color:{color};
+                    border:1px solid #666;
+                    flex-shrink:0;
+                "></div>
+                <span>{label}</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
 
 # ============================================================
@@ -950,7 +955,7 @@ if selected_ward is not None:
         with col1:
 
             st.metric(
-                "Heat-Health Risk",
+                "Human Heat Risk",
                 f"{risk_score:.3f}",
                 risk_category,
             )
@@ -959,7 +964,7 @@ if selected_ward is not None:
         with col2:
 
             st.metric(
-                "Forecast WBGT",
+                "Maximum forecast WBGT",
                 f"{wbgt:.1f} °C",
             )
 
@@ -967,7 +972,7 @@ if selected_ward is not None:
         with col3:
 
             st.metric(
-                "Heat Hazard",
+                "Heat hazard score",
                 f"{hazard:.3f}",
             )
 
@@ -975,7 +980,7 @@ if selected_ward is not None:
         with col4:
 
             st.metric(
-                "Response Gap",
+                "Response-access gap",
                 f"{response_gap:.3f}",
             )
 
@@ -985,7 +990,7 @@ if selected_ward is not None:
         # ====================================================
 
         st.markdown(
-            "### 👥 Population context"
+            "### Population context"
         )
 
 
@@ -1000,33 +1005,12 @@ if selected_ward is not None:
             )
 
 
-            if risk_category in [
-                "High",
-                "Very High",
-            ]:
-
-                st.warning(
-                    f"""
-                    **{total_population:,} residents live in
-                    this {risk_category}-risk ward.**
-
-                    This population figure represents residents
-                    living in a ward currently classified for
-                    priority heat-health attention.
-
-                    It does **not** mean that all residents will
-                    experience heat-related illness.
-                    """
-                )
-
-            else:
-
-                st.info(
-                    f"""
-                    This ward has an estimated population of
-                    **{total_population:,} residents**.
-                    """
-                )
+            st.caption(
+                f"Approximately {total_population:,} residents "
+                "live in this ward. Population is contextual "
+                "information and is not interpreted as illness "
+                "probability."
+            )
 
 
         elif total_population == 0:
@@ -1048,7 +1032,7 @@ if selected_ward is not None:
         # ====================================================
 
         st.markdown(
-            "### 📈 Hourly heat-risk outlook"
+            "### Hourly heat-risk outlook"
         )
 
 
@@ -1099,18 +1083,17 @@ if selected_ward is not None:
 
 
             st.caption(
-                "Hourly Human Heat Risk for the selected "
-                "ward and forecast date. Values represent "
-                "the combined heat hazard, population "
-                "vulnerability and response-access gap."
+                "Hourly Human Heat Risk for the selected ward "
+                "and forecast date. Values combine heat hazard, "
+                "population vulnerability and response-access gap."
             )
 
 
         else:
 
             st.info(
-                "Hourly risk information is not "
-                "currently available for this ward and date."
+                "Hourly risk information is not currently "
+                "available for this ward and date."
             )
 
 
@@ -1119,7 +1102,7 @@ if selected_ward is not None:
         # ====================================================
 
         st.markdown(
-            "### ⏰ Highest-risk period"
+            "### Highest-risk period"
         )
 
 
@@ -1169,9 +1152,9 @@ if selected_ward is not None:
                 st.warning(
                     f"Highest predicted risk occurs during "
                     f"**{peak['period_label']}**. "
-                    "This period should be prioritised for "
-                    "targeted heat-safety messaging and "
-                    "operational preparedness."
+                    "Prioritise this period for targeted "
+                    "heat-safety messaging and operational "
+                    "preparedness."
                 )
 
 
@@ -1202,11 +1185,11 @@ if selected_ward is not None:
 
 
         # ====================================================
-        # WHY IS THIS WARD AT RISK?
+        # RISK DRIVERS
         # ====================================================
 
         st.markdown(
-            "### Why is this ward at risk?"
+            "### Risk drivers"
         )
 
 
@@ -1219,16 +1202,17 @@ if selected_ward is not None:
 
             st.markdown(
                 f"""
-                **Future Heat Hazard**
+                **Future heat hazard**
 
-                Forecast WBGT reaches
-                **{wbgt:.1f} °C**.
+                Maximum forecast WBGT:
+                **{wbgt:.1f} °C**
 
-                The empirical heat-hazard score is
-                **{hazard:.3f}**, representing the
-                position of this forecast relative to
-                the historical WBGT reference
-                distribution.
+                Heat-hazard score:
+                **{hazard:.3f}**
+
+                The hazard score represents the position of
+                the forecast relative to the historical WBGT
+                reference distribution.
                 """
             )
 
@@ -1237,7 +1221,7 @@ if selected_ward is not None:
 
             st.markdown(
                 f"""
-                **Population Vulnerability**
+                **Population vulnerability**
 
                 Vulnerability score:
                 **{vulnerability:.3f}**
@@ -1261,37 +1245,27 @@ if selected_ward is not None:
         if response_gap >= 0.75:
 
             st.error(
-                f"""
-                **High response-access gap ({response_gap:.3f})**
-
-                This ward has relatively weaker
-                proximity to mapped hospitals and
-                cooling resources.
-                """
+                f"High response-access gap ({response_gap:.3f}). "
+                "Mapped hospitals and cooling resources are "
+                "relatively less accessible in this ward."
             )
 
 
         elif response_gap >= 0.50:
 
             st.warning(
-                f"""
-                **Moderate response-access gap ({response_gap:.3f})**
-
-                Resource accessibility is relatively
-                weaker than in lower-gap wards.
-                """
+                f"Moderate response-access gap ({response_gap:.3f}). "
+                "Resource accessibility is relatively weaker "
+                "than in lower-gap wards."
             )
 
 
         else:
 
             st.success(
-                f"""
-                **Lower response-access gap ({response_gap:.3f})**
-
-                This ward has comparatively better
-                access to mapped response resources.
-                """
+                f"Lower response-access gap ({response_gap:.3f}). "
+                "This ward has comparatively better access "
+                "to mapped response resources."
             )
 
 
@@ -1474,17 +1448,17 @@ if selected_ward is not None:
 
 
         st.caption(
-            "Resource-access indicators are based on "
-            "the mapped hospital and cooling-centre datasets."
+            "Resource-access indicators are based on the mapped "
+            "hospital and cooling-centre datasets."
         )
 
 
         # ====================================================
-        # RECOMMENDED ACTION
+        # RECOMMENDED RESPONSE
         # ====================================================
 
         st.markdown(
-            "### Recommended action"
+            "### Recommended response"
         )
 
 
@@ -1493,29 +1467,39 @@ if selected_ward is not None:
             "Very High",
         ]:
 
-            st.warning(
-                """
-                **Priority intervention recommended**
+            st.error(
+                "Priority response recommended"
+            )
 
-                • Issue advance heat-risk alerts  
-                • Push hydration and heat-avoidance reminders  
-                • Prioritise cooling-centre readiness  
-                • Verify emergency medical preparedness  
-                • Target outreach toward vulnerable populations
+
+            st.markdown(
+                """
+                **Recommended measures**
+
+                - Issue advance heat-risk communication
+                - Schedule peak-period hydration reminders
+                - Prioritise cooling-centre readiness
+                - Verify emergency medical preparedness
+                - Target outreach toward vulnerable populations
                 """
             )
 
 
         elif risk_category == "Moderate":
 
-            st.info(
-                """
-                **Preventive action recommended**
+            st.warning(
+                "Preventive response recommended"
+            )
 
-                • Monitor the forecast  
-                • Prepare heat-safety messaging  
-                • Check cooling-resource availability  
-                • Encourage hydration and reduced peak-hour exposure
+
+            st.markdown(
+                """
+                **Recommended measures**
+
+                - Monitor forecast progression
+                - Prepare heat-safety communication
+                - Confirm cooling-resource availability
+                - Encourage reduced peak-hour exposure
                 """
             )
 
@@ -1523,21 +1507,22 @@ if selected_ward is not None:
         else:
 
             st.success(
-                """
-                **Routine monitoring**
+                "Routine monitoring"
+            )
 
-                Continue monitoring the forecast and maintain
-                normal heat-health preparedness.
-                """
+
+            st.caption(
+                "Continue forecast monitoring and maintain "
+                "normal heat-health preparedness."
             )
 
 
         # ====================================================
-        # RISK COMPOSITION
+        # RISK SCORE COMPOSITION
         # ====================================================
 
         st.markdown(
-            "### Risk composition"
+            "### Risk score composition"
         )
 
 
@@ -1606,8 +1591,8 @@ if selected_ward is not None:
 else:
 
     st.info(
-        "Select a ward on the map to view its "
-        "heat-health intelligence and response resources."
+        "Select a ward on the map to view its heat-health "
+        "intelligence and response resources."
     )
 
 
@@ -1619,6 +1604,12 @@ st.divider()
 
 st.subheader(
     "Targeted Alert Planning"
+)
+
+
+st.caption(
+    "Identify wards requiring advance heat-health "
+    "communication and operational preparation."
 )
 
 
@@ -1669,32 +1660,29 @@ if high_risk_count > 0:
     if high_risk_population is not None:
 
         st.warning(
-            f"""
-            **{high_risk_count} MCD wards require targeted
-            heat-risk attention for
-            {selected_date.strftime('%d %B')}.**
+            f"**{high_risk_count} MCD wards** require targeted "
+            f"heat-risk attention for "
+            f"**{selected_date.strftime('%d %B')}**. "
+            f"This includes **{very_high_count} Very High-risk "
+            f"wards**, covering approximately "
+            f"**{high_risk_population:,} residents**."
+        )
 
-            This includes **{very_high_count} Very High-risk wards**
-            covering approximately
-            **{high_risk_population:,} residents**.
-
-            The population figure represents residents living
-            in wards classified as High or Very High risk; it
-            is not an estimate of illness or mortality.
-            """
+        st.caption(
+            "Population represents residents living in wards "
+            "classified as High or Very High risk. It is not "
+            "an estimate of illness or mortality."
         )
 
     else:
 
         st.warning(
-            f"""
-            **{high_risk_count} MCD wards require targeted
-            heat-risk attention for
-            {selected_date.strftime('%d %B')}.**
-
-            This includes **{very_high_count} Very High-risk wards**.
-            """
+            f"**{high_risk_count} MCD wards** require targeted "
+            f"heat-risk attention for "
+            f"**{selected_date.strftime('%d %B')}**. "
+            f"This includes **{very_high_count} Very High-risk wards**."
         )
+
 
 else:
 
@@ -1704,7 +1692,7 @@ else:
 
 
 # ============================================================
-# ALERT PREPARATION BUTTON
+# ALERT PREPARATION
 # ============================================================
 
 if high_risk_count > 0:
@@ -1782,8 +1770,7 @@ if high_risk_count > 0:
             **Operational use**
 
             This list can be provided to the relevant
-            communication system for targeted resident
-            messaging.
+            communication system for targeted resident messaging.
             """
         )
 
@@ -1800,13 +1787,13 @@ if high_risk_count > 0:
 
 
 # ============================================================
-# SPATIAL COVERAGE
+# MODEL COVERAGE
 # ============================================================
 
 st.divider()
 
 st.subheader(
-    "Spatial Coverage"
+    "Model coverage"
 )
 
 
@@ -1823,10 +1810,19 @@ with col1:
 
 with col2:
 
-    st.metric(
-        "Forecast",
-        f"{lead_time}-day",
-    )
+    if lead_time is not None:
+
+        st.metric(
+            "Forecast horizon",
+            f"{lead_time}-day",
+        )
+
+    else:
+
+        st.metric(
+            "Forecast horizon",
+            "N/A",
+        )
 
 
 with col3:
@@ -1990,6 +1986,6 @@ if not high_risk.empty:
 st.divider()
 
 st.caption(
-    "Delhi Heat-Health Platform · "
-    "Predict → Warn → Protect → Rescue"
+    "Delhi Heat-Health Risk Dashboard · "
+    "Ward-level decision support for heat-health preparedness"
 )
